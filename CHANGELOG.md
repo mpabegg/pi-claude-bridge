@@ -15,6 +15,7 @@
 - **Debug: opt-in cache trace** — `CLAUDE_BRIDGE_TRACE_DIR` logs session decisions to help diagnose prompt-cache loss. See `diag/CACHE-TRACE.md`.
 - **Fix: abort ignored after a terminated tool batch (#200, issue #199)** — when a run ended with Claude Code's query parked at a tool call (`terminate: true`), aborting the next run did nothing. Each run that continues the query now binds its own signal. Thanks @orshih6 and @cootue.
 - **Fix: teardown rewrote a finished tool-call turn (issue #181)** — an abort, crash or error after a turn ended on a tool call changed pi's copy of that message to aborted/error, which could later orphan its tool result on Codex. Thanks @good-nightmoon.
+- **Fix: a rate-limited turn stays empty, so omp falls back (#195)** — when Claude Code's `<synthetic>` report follows a rate-limit rejection, its wording now lives only in the error, not in the turn's content. omp won't retry or walk `retry.fallbackChains` for a failed turn that holds text. Other failures keep their wording as before.
 
 ## 0.9.3 — 2026-10-13
 
