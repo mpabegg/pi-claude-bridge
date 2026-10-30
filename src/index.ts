@@ -29,7 +29,7 @@ import {
 	type PromptCapture,
 } from "./prompt-capture.js";
 import { collectCarriedAttachments } from "./attachments.js";
-import { describeMissingPromptParts, promptKey, resolveHostPromptParts, type PromptRecordOptions } from "./host-prompt.js";
+import { describeMissingPromptParts, hasHostPromptResolver, promptKey, resolveHostPromptParts, type PromptRecordOptions } from "./host-prompt.js";
 import { createToolServer } from "./mcp-server.js";
 import { buildActionSummary, type ToolCallState } from "./askclaude-ui.js";
 import { askClaudeCallTags, askClaudeToolDescription, buildAskClaudeParams, resolveAskClaudeDefaults, resolveAskClaudeMode, type AskClaudeMode } from "./askclaude-schema.js";
@@ -946,9 +946,11 @@ const promptCaptures = sharedPromptCaptures((diagnostic) => {
 	);
 });
 
-// Set by the latest before_agent_start whose host carried no systemPromptOptions and
-// whose host resolver supplied none, so an unresolved capture can say why (#232).
-// Undefined on pi, which always supplies them.
+// Set by the latest recording (before_agent_start, agent_start or turn_start) whose
+// host carried no systemPromptOptions and whose host resolver supplied none, for an
+// array prompt or a host with a resolver registered. That prompt is left unrecorded,
+// so its turn fails, and the failure says why (#232). Undefined on pi, which always
+// supplies them.
 let missingPromptParts: { resolverError?: string } | undefined;
 
 /** Whatever a settled session left behind, named in one greppable line.
@@ -1969,6 +1971,12 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	try {
 		traceAssertReady();
 		promptCapture = promptCaptures.resolveOrDerive(context.systemPrompt);
+		// An empty prompt has no key to miss, so resolveOrDerive returns nothing rather
+		// than throw. From a host that supplied no parts that would run the turn without
+		// them, so fail it like any other unrecorded prompt.
+		if (!promptCapture && !context.systemPrompt && missingPromptParts) {
+			throw new Error("prompt-capture: the host sent an empty system prompt, so there is no capture to project.");
+		}
 		systemPromptAppend = promptCapture
 			? projectPromptCapture(promptCapture, {
 				skillReadTool: mcpTools.some((tool) => tool.name === "read") ? "mcp" : "none",
@@ -2621,17 +2629,34 @@ export default function (pi: ExtensionAPI) {
 	}
 	pi.on("before_agent_start", (event, ctx) => {
 		hostOmitsPromptOptions = !event.systemPromptOptions;
-		const resolved = hostOmitsPromptOptions ? resolveHostPromptParts(pi, event, ctx) : {};
-		missingPromptParts = hostOmitsPromptOptions && !resolved.options ? { resolverError: resolved.error } : undefined;
-		lastSystemPromptOptions = event.systemPromptOptions ?? resolved.options;
+		if (hostOmitsPromptOptions) {
+			lastSystemPromptOptions = undefined;
+			recordHostResolvedPrompt("before_agent_start", event.systemPrompt, ctx);
+			return;
+		}
+		missingPromptParts = undefined;
+		lastSystemPromptOptions = event.systemPromptOptions;
 		recordSystemPrompt("before_agent_start", event.systemPrompt, lastSystemPromptOptions);
 	});
-	// Parts a host resolver supplied are re-resolved against the prompt being recorded:
-	// extensions after this one may still change it, and the final prompt's parts win.
-	// The stash covers a resolver that comes back empty.
-	function recaptureOptions(systemPrompt: string | readonly string[], ctx: unknown): PromptRecordOptions | undefined {
-		if (!hostOmitsPromptOptions) return lastSystemPromptOptions;
-		return resolveHostPromptParts(pi, { systemPrompt }, ctx).options ?? lastSystemPromptOptions;
+	// A host that omits systemPromptOptions gets each prompt's parts from its resolver,
+	// re-resolved at every recording: extensions after this one may still change the
+	// prompt, and the final prompt's parts win, never an earlier prompt's stash.
+	//
+	// When no parts come back for an array prompt, or from a host that registered a
+	// resolver, nothing is recorded: an empty capture would resolve exactly and run the
+	// turn without the host's context files, skills or appended prompt. The provider's
+	// lookup misses instead and fails naming the cause. A string prompt with no resolver
+	// registered records as before; pi always supplies options, so pi never gets here.
+	function recordHostResolvedPrompt(source: string, systemPrompt: string | readonly string[], ctx: unknown) {
+		const resolved = resolveHostPromptParts(pi, { systemPrompt }, ctx);
+		const mustResolve = Array.isArray(systemPrompt) || hasHostPromptResolver(pi);
+		missingPromptParts = mustResolve && !resolved.options ? { resolverError: resolved.error } : undefined;
+		if (!missingPromptParts) recordSystemPrompt(source, systemPrompt, resolved.options);
+	}
+	function recapture(source: string, ctx: { getSystemPrompt(): string | readonly string[] }) {
+		const systemPrompt = ctx.getSystemPrompt();
+		if (hostOmitsPromptOptions) recordHostResolvedPrompt(source, systemPrompt, ctx);
+		else recordSystemPrompt(source, systemPrompt, lastSystemPromptOptions);
 	}
 	// The prompt the provider actually queries with is the fully-widened one: MCP tool
 	// descriptions merge into the system prompt only after their servers connect, which
@@ -2645,10 +2670,7 @@ export default function (pi: ExtensionAPI) {
 	//
 	// agent_start also captures a handler-returned forceSystemPrompt, which
 	// buildSystemPrompt renders verbatim.
-	pi.on("agent_start", (_event, ctx) => {
-		const systemPrompt = ctx.getSystemPrompt();
-		recordSystemPrompt("agent_start", systemPrompt, recaptureOptions(systemPrompt, ctx));
-	});
+	pi.on("agent_start", (_event, ctx) => recapture("agent_start", ctx));
 
 	// Mid-run re-renders: turn_start fires before every turn (first turn included)
 	// after the turn's prompt is final: prepareNextTurnWithContext has
@@ -2657,10 +2679,7 @@ export default function (pi: ExtensionAPI) {
 	// the prompt can change at keeps exact-match alive mid-run. The stashed options can
 	// lag a mid-run tool-loadout change, which skews the hasRead skills filter until the
 	// next before_agent_start — accepted: a stale skills list beats failing the turn.
-	pi.on("turn_start", (_event, ctx) => {
-		const systemPrompt = ctx.getSystemPrompt();
-		recordSystemPrompt("turn_start", systemPrompt, recaptureOptions(systemPrompt, ctx));
-	});
+	pi.on("turn_start", (_event, ctx) => recapture("turn_start", ctx));
 	pi.on("session_shutdown", (_event, ctx) => {
 		forgetSessionCwd(ctx.sessionManager.getSessionId());
 		reportLeaks("session_shutdown");

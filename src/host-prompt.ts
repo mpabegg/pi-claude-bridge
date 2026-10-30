@@ -38,6 +38,11 @@ export function registerHostPromptParts(api: object, resolver: HostPromptResolve
 	};
 }
 
+/** Whether a resolver is registered for the bridge activated with `api`. */
+export function hasHostPromptResolver(api: object): boolean {
+	return resolvers.has(api);
+}
+
 /** The registered resolver's parts for this prompt. A resolver that throws reports
  *  through `error`: a host-shape mismatch should fail the turn with a diagnostic at
  *  lookup, not take down the event handler. */
