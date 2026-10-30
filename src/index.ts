@@ -65,6 +65,20 @@ const CC_CHILD_ENV = {
 	CLAUDE_CODE_ELEGANT_MEADOW: "0",
 } as const;
 
+// Anthropic credentials and endpoint that override Claude Code's subscription login
+// when they are exported in the shell that started pi (#107).
+const ANTHROPIC_AUTH_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"] as const;
+
+/** The env for a Claude Code child: pi's env plus CC_CHILD_ENV. With
+ *  `provider.isolateAnthropicEnv`, the inherited Anthropic auth variables are left
+ *  out so the child uses the subscription login. Builds a copy; `process.env` is
+ *  never touched. Every spawn site goes through here. */
+function buildCcChildEnv(provider?: Pick<NonNullable<Config["provider"]>, "isolateAnthropicEnv">): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...process.env, ...CC_CHILD_ENV };
+	if (provider?.isolateAnthropicEnv === true) for (const name of ANTHROPIC_AUTH_ENV) delete env[name];
+	return env;
+}
+
 // Pi owns context files on the provider path, so Claude Code must not load its
 // own on top: otherwise project CLAUDE.md/AGENTS.md files arrive twice, and
 // ~/.claude/CLAUDE.md — a user persona written for a harness that is not the
@@ -531,7 +545,7 @@ async function runIsolatedSummary(
 			prompt: promptText,
 			options: {
 				cwd,
-				env: traceQueryStart(traceQueryId, { kind: "isolated-summary", callId: traceCallId, model: cliModel }, { ...process.env, ...CC_CHILD_ENV }),
+				env: traceQueryStart(traceQueryId, { kind: "isolated-summary", callId: traceCallId, model: cliModel }, buildCcChildEnv(compactProviderSettings)),
 				settings: { autoMemoryEnabled: false },
 				tools: [],
 				strictMcpConfig: true,
@@ -833,6 +847,7 @@ export const __test = {
 	deliverToolResults,
 	drainForAbort,
 	CC_CHILD_ENV,
+	buildCcChildEnv,
 	buildMcpServers,
 	get promptCaptures() {
 		return promptCaptures;
@@ -2115,7 +2130,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 			kind: "provider", callId: traceCallId, piSessionId, reentrant: isReentrant, resume: resumeSessionId ?? null,
 			model: cliModel, effort: effort ?? null, servedToolNames: Object.fromEntries(customToolNameToSdk), mcpTools: mcpTools.map((t) => t.name),
 			signal: traceSignalId(options?.signal), digests: { systemPromptAppend },
-		}, { ...process.env, ...CC_CHILD_ENV });
+		}, buildCcChildEnv(providerSettings));
 		const cliDebug = makeCliDebugOptions("provider");
 		const childProcess = new QueryProcess(cliDebug.stderr);
 		const queryOptions: NonNullable<Parameters<typeof query>[0]["options"]> = {
@@ -2421,7 +2436,7 @@ async function promptAndWait(
 		prompt,
 		options: {
 			cwd,
-			env: traceQueryStart(traceQueryId, { kind: "askclaude", piSessionId: askClaudeSessionId, resume: resumeSessionId, model: cliModel, mode, isolated: Boolean(options?.isolated) }, { ...process.env, ...CC_CHILD_ENV }),
+			env: traceQueryStart(traceQueryId, { kind: "askclaude", piSessionId: askClaudeSessionId, resume: resumeSessionId, model: cliModel, mode, isolated: Boolean(options?.isolated) }, buildCcChildEnv(providerSettings)),
 			permissionMode: "bypassPermissions",
 			settings: { ...claudeCodeSettings(providerSettings), claudeMdExcludes: CLAUDE_MD_EXCLUDES },
 			skills: [],

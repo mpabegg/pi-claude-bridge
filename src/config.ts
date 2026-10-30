@@ -37,6 +37,10 @@ export interface Config {
 		// Model ids (e.g. "claude-future-9") whose declared 1M context Claude Code
 		// does not actually serve; pins them to the bare id at 200K.
 		forceTwoHundredK?: string[];
+		// Set to true to leave ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN and
+		// ANTHROPIC_BASE_URL out of the Claude Code child's environment, so a value
+		// exported in the shell cannot override the subscription login. Default false.
+		isolateAnthropicEnv?: boolean;
 	};
 }
 
