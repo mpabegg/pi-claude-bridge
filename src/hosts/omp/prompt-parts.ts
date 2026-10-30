@@ -17,6 +17,20 @@ const PROJECT_OPEN = "<project-context>";
 const PROJECT_CLOSE = "</project-context>";
 const CRITICAL_OPEN = "<critical>";
 const CRITICAL_CLOSE = "</critical>";
+const SKILLS_HEADING = "# Skills & Rules";
+
+/** Elements omp renders between the template and the project element that are harness
+ *  guidance, not user content. Any other element there is forwarded. */
+const HARNESS_ELEMENT_HEADINGS = ["# Browser Relay"];
+
+/** Headings of omp-shipped prose in the text after the project context, with the
+ *  deepest heading level that still ends the section. `# Memory` ends at any heading
+ *  (so the `## User Instructions` that follows it survives); an unrecognised heading
+ *  is always kept, so a new section errs toward forwarding user text. */
+const HARNESS_TRAILING_SECTIONS: Record<string, number> = {
+	"# Memory": 6,
+	"## Auto-Learn (experimental)": 2,
+};
 
 /** The prompt does not have the shape this extractor was written against: omp changed
  *  its template, or the host is not the omp it was recorded from. `missing` is the
@@ -56,6 +70,32 @@ function section(text: string, heading: string, stops: readonly string[]): strin
 	return text.slice(at, nextLineStart(text, at + heading.length, stops)).trim();
 }
 
+/** The heading level of a markdown heading line, or 0. */
+function headingLevel(line: string): number {
+	let level = 0;
+	while (level < line.length && line[level] === "#") level++;
+	return level >= 1 && level <= 6 && line[level] === " " ? level : 0;
+}
+
+/** `text` without omp's own memory guidance sections. Headings inside fenced code are not headings. */
+function dropHarnessTrailingSections(text: string): string {
+	const kept: string[] = [];
+	let inFence = false;
+	let dropUntilLevel = 0; // 0: not dropping
+	for (const line of text.split("\n")) {
+		if (line.startsWith("```")) inFence = !inFence;
+		const level = inFence ? 0 : headingLevel(line);
+		if (level > 0) {
+			if (dropUntilLevel > 0 && level <= dropUntilLevel) dropUntilLevel = 0;
+			if (dropUntilLevel === 0 && line.trimEnd() in HARNESS_TRAILING_SECTIONS) {
+				dropUntilLevel = HARNESS_TRAILING_SECTIONS[line.trimEnd()];
+			}
+		}
+		if (dropUntilLevel === 0) kept.push(line);
+	}
+	return kept.join("\n").trim();
+}
+
 export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRecordOptions {
 	const template = systemPrompt[0];
 	if (template === undefined || !template.includes(TEMPLATE_HEADING)) {
@@ -89,6 +129,17 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	].filter((b): b is string => b !== undefined);
 	if (rules.length > 0) sections["omp-rules"] = rules.join("\n");
 
+	// omp renders the `# Skills & Rules` heading only with something under it. Finding
+	// the heading but none of the blocks, or the skills elsewhere, means the template
+	// moved and skills would be silently lost. The project-context block is user text
+	// that may quote the tag, so it is not searched.
+	const skillsHeading = template.startsWith(SKILLS_HEADING) ? 0 : template.indexOf(`\n${SKILLS_HEADING}`);
+	if (skillsHeading >= 0 && !skills && rules.length === 0) throw new OmpPromptShapeError("<skills>");
+	for (let i = 1; i < systemPrompt.length; i++) {
+		const element = i === projectIndex ? projectElement.slice(0, open) + projectElement.slice(closeEnd) : systemPrompt[i];
+		if (element.includes("<skills>")) throw new OmpPromptShapeError("<skills> in element 0");
+	}
+
 	// The personality's own sub-headings are `# ` too, so it runs to the next `§`.
 	const personality = section(template, "# Personality", ["§ "]);
 	if (personality) sections["omp-personality"] = personality;
@@ -96,18 +147,28 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	const internalUrls = section(template, "# Internal URLs", ["# ", "§ "]);
 	if (internalUrls) sections["omp-internal-urls"] = internalUrls;
 
-	for (let i = projectIndex + 1; i < systemPrompt.length; i++) {
-		if (systemPrompt[i]) sections[`omp-extra-${i - projectIndex}`] = systemPrompt[i];
+	// Everything but the project element and omp's known harness elements is user or
+	// extension text, in array order.
+	let extra = 0;
+	for (let i = 1; i < systemPrompt.length; i++) {
+		const element = systemPrompt[i];
+		if (i === projectIndex || !element.trim()) continue;
+		if (i < projectIndex) {
+			const head = element.trimStart();
+			if (HARNESS_ELEMENT_HEADINGS.some((h) => head.startsWith(h))) continue;
+		}
+		sections[`omp-extra-${++extra}`] = element;
 	}
 
 	// What follows the project context: a `<critical>` block (omp's delivery reminders,
-	// harness) and then the memory and user-instruction text.
+	// harness), then omp's memory guidance (harness) and the user's instructions.
 	let trailing = projectElement.slice(closeEnd).trimStart();
 	if (trailing.startsWith(CRITICAL_OPEN)) {
 		const criticalEnd = trailing.indexOf(CRITICAL_CLOSE);
-		trailing = criticalEnd < 0 ? "" : trailing.slice(criticalEnd + CRITICAL_CLOSE.length);
+		if (criticalEnd < 0) throw new OmpPromptShapeError(CRITICAL_CLOSE);
+		trailing = trailing.slice(criticalEnd + CRITICAL_CLOSE.length);
 	}
-	trailing = trailing.trim();
+	trailing = dropHarnessTrailingSections(trailing);
 
 	return {
 		contextFiles: [],

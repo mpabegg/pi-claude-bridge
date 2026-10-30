@@ -46,8 +46,9 @@ describe("omp prompt-parts extractor (omp 18.14 fixture)", () => {
 
 	it("takes the text after the trailing critical block as the append text", () => {
 		const parts = extractOmpPromptParts(fixture);
-		assert.ok(parts.appendSystemPrompt.startsWith("# Memory"));
 		assert.ok(parts.appendSystemPrompt.includes("## User Instructions"));
+		assert.ok(!parts.appendSystemPrompt.includes("# Memory"));
+		assert.ok(!parts.appendSystemPrompt.includes("Auto-Learn"));
 		assert.ok(!parts.appendSystemPrompt.includes("<critical>"));
 		assert.ok(!parts.appendSystemPrompt.includes("</project-context>"));
 	});
@@ -102,18 +103,18 @@ describe("omp prompt-parts extractor (synthetic prompts)", () => {
 			"- c",
 			"</critical>",
 			"",
-			"# Memory",
+			"## User Instructions",
 		].join("\n");
 		const parts = extractOmpPromptParts([role, element]);
 		const ctx = parts.sections["omp-project-context"];
 		assert.ok(ctx.includes("Never write </project-context> by hand.\n</repo-rules>"));
 		assert.ok(ctx.endsWith("</repo-rules>\n</project-context>"));
-		assert.equal(parts.appendSystemPrompt, "# Memory");
+		assert.equal(parts.appendSystemPrompt, "## User Instructions");
 	});
 
 	it("uses the text after the project context as the append text when no critical block follows", () => {
-		const parts = extractOmpPromptParts([role, `${project}\n\n# Memory\nm`]);
-		assert.equal(parts.appendSystemPrompt, "# Memory\nm");
+		const parts = extractOmpPromptParts([role, `${project}\n\n## User Instructions\nu`]);
+		assert.equal(parts.appendSystemPrompt, "## User Instructions\nu");
 	});
 
 	it("drops elements between the template and the project element and numbers later ones", () => {
@@ -138,6 +139,59 @@ describe("omp prompt-parts extractor (synthetic prompts)", () => {
 		assert.throws(
 			() => extractOmpPromptParts([]),
 			(err) => err instanceof OmpPromptShapeError && err.missing === "§ Role",
+		);
+	});
+
+	it("drops omp's Memory and Auto-Learn guidance but keeps user instructions and unknown sections", () => {
+		const trailing = [
+			"# Memory", "memory prose", "- bullet",
+			"## Auto-Learn (experimental)", "learn prose", "```", "# not a heading", "```",
+			"## User Instructions", "USER-TEXT",
+			"## Something New", "NEW-SECTION-TEXT",
+		].join("\n");
+		const parts = extractOmpPromptParts([role, `${project}\n\n${trailing}`]);
+		assert.equal(parts.appendSystemPrompt, "## User Instructions\nUSER-TEXT\n## Something New\nNEW-SECTION-TEXT");
+	});
+
+	it("omits the append text when only omp's memory guidance follows the project context", () => {
+		const parts = extractOmpPromptParts([role, `${project}\n\n# Memory\nm\n## Auto-Learn (experimental)\nl`]);
+		assert.equal(parts.appendSystemPrompt, undefined);
+	});
+
+	it("forwards a middle element that is not a known harness element", () => {
+		const parts = extractOmpPromptParts([role, "# Browser Relay\nharness", "USER-MIDDLE", project, "after"]);
+		assert.equal(parts.sections["omp-extra-1"], "USER-MIDDLE");
+		assert.equal(parts.sections["omp-extra-2"], "after");
+		assert.ok(!allText(parts).includes("harness"));
+	});
+
+	it("throws naming <skills> when the skills heading has no skills or rules under it", () => {
+		assert.throws(
+			() => extractOmpPromptParts([`${role}\n# Skills & Rules\nMatching skill.\n# Internal URLs\nx`, project]),
+			(err) => err instanceof OmpPromptShapeError && err.missing === "<skills>",
+		);
+	});
+
+	it("does not throw when omp rendered no skills heading", () => {
+		assert.doesNotThrow(() => extractOmpPromptParts([role, project]));
+	});
+
+	it("throws naming <skills> in element 0 when the skills block is in another element", () => {
+		assert.throws(
+			() => extractOmpPromptParts([role, "<skills>\n- a: b\n</skills>", project]),
+			(err) => err instanceof OmpPromptShapeError && err.missing === "<skills> in element 0",
+		);
+	});
+
+	it("lets repo rules inside the project context quote <skills>", () => {
+		const quoting = "<project-context>\n<repo-rules>use <skills> wisely</repo-rules>\n</project-context>";
+		assert.doesNotThrow(() => extractOmpPromptParts([role, quoting]));
+	});
+
+	it("throws naming </critical> when the critical block after the project context is unclosed", () => {
+		assert.throws(
+			() => extractOmpPromptParts([role, `${project}\n\n<critical>\n- c\n\n## User Instructions\nu`]),
+			(err) => err instanceof OmpPromptShapeError && err.missing === "</critical>",
 		);
 	});
 });
