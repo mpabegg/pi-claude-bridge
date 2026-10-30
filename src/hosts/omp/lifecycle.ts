@@ -8,7 +8,8 @@
 export type Handler = (event: any, ctx: any) => unknown;
 
 const SWITCH_REASONS = new Set(["new", "resume", "fork"]);
-/** `btw` is a side question in a throwaway branch: the main session stays as it was. */
+/** `btw` is not routed: a `/btw` promotion moves to a new session id and appends the
+ *  Q/A pair there, so upstream imports that session on its own; nothing to reset. */
 const BRANCH_REASONS = new Set(["branch", "fork"]);
 
 /** Call the shared extension's `session_start` / `session_tree` handlers for an omp
