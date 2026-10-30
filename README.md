@@ -74,6 +74,7 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
 - `forceTwoHundredK` — array of model ids to pin to 200K context (bare id, no `[1m]` suffix). Use if pi-ai declares a model at 1M but Claude Code won't serve it on your plan.
 - `strictMcpConfig` — block MCP servers from `~/.claude.json` / `.mcp.json` (default `true`). Cloud MCP (Gmail/Drive via claude.ai OAuth) is always blocked.
 - `autoMemoryEnabled` — enable Claude Code's auto-memory system (default `false`)
+- `isolateAnthropicEnv` — set to `true` to keep `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` from your shell out of every Claude Code process the bridge starts (default `false`). Use it when one of them is exported for other tools but Claude Code should keep using your subscription login. Leave it off if you reach Claude Code through a gateway or API key on purpose. It only filters what the bridge passes on; it does not change `process.env`.
 - `pathToClaudeCodeExecutable` — path to the `claude` binary. Useful if your OS/filesystem has the SDK's bundled musl/glibc binaries in a place where they can't run. For example, with Nix you can set the binary to e.g. `"/home/you/.nix-profile/bin/claude"`.
 
 
