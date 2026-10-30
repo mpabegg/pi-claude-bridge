@@ -15,7 +15,10 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 echo "=== omp-smoke.sh ==="
 
-omp -p --mode json --model claude-bridge/claude-haiku-5-5 "$PROMPT" > "$OUT"
+# stdin from /dev/null: `omp -p` reads piped stdin and would hang on an open pipe.
+# timeout bounds a hang so it fails instead of blocking.
+timeout 240 omp -p --mode json --model claude-bridge/claude-haiku-5-5 "$PROMPT" > "$OUT" </dev/null \
+  || fail "omp turn failed or timed out (exit $?)"
 
 jq -e -s 'any(.[]; .type == "tool_execution_end" and .toolName == "read" and (.isError // false) != true)' "$OUT" >/dev/null \
   || fail "no successful read tool_execution_end event"
@@ -31,7 +34,8 @@ jq -e -s 'any(.[]; .type == "agent_end")' "$OUT" >/dev/null \
   || fail "no agent_end event"
 echo "ok: agent_end seen"
 
-USAGE="$(omp usage --json --provider claude-bridge)"
+USAGE="$(timeout 60 omp usage --json --provider claude-bridge </dev/null)" \
+  || fail "omp usage failed or timed out"
 jq -e '[.reports[0].limits[].window.id] | (index("5h") != null) and (index("7d") != null)' <<<"$USAGE" >/dev/null \
   || fail "omp usage lacks 5h and 7d windows for claude-bridge"
 echo "ok: omp usage reports 5h and 7d windows"

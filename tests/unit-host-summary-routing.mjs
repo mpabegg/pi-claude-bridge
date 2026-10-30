@@ -81,10 +81,10 @@ describe("host summary routing in streamSimple", () => {
 	it("an unmarked signal takes the normal provider path", async () => {
 		const signal = new AbortController().signal;
 		const options = await run(turnContext, { signal, sessionId: "pi-summary-routing-unmarked" });
-		// The provider path: a persisted session, Claude Code's default setting sources,
-		// streamed partial messages and the claude_code preset prompt.
+		// The provider path: a persisted session, streamed partial messages and the
+		// claude_code preset prompt. settingSources is not asserted: it depends on
+		// provider.loadClaudeSettings ([] by default), so it cannot tell the paths apart.
 		assert.equal(options.persistSession, undefined);
-		assert.equal(options.settingSources, undefined);
 		assert.equal(options.maxTurns, undefined);
 		assert.equal(options.includePartialMessages, true);
 		assert.equal(options.systemPrompt?.type, "preset");
