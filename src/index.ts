@@ -38,6 +38,7 @@ import { nonSystemMessages, toBridgeContext } from "./transcript.js";
 import { forgetSessionCwd, rememberSessionCwd, rememberSummarySession, sessionCwdFor, summarySessionFor } from "./session-cwd.js";
 import { updateUsage, type SdkUsage } from "./usage.js";
 import { rateLimitResponse } from "./rate-limit.js";
+import { isHostSummaryCall } from "./host-summary.js";
 import { setTraceNotifier, traceAssertReady, traceEvent, traceId, traceInput, traceQueryStart, traceSignalId, traceSnapshot, traceStrict } from "./cache-trace.js";
 
 // --- Debug logging ---
@@ -1834,10 +1835,11 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 	// Pi's compaction, branch-summary and bug-report calls use cacheRetention:"none"
 	// in completeSummarization. Their prompts bypass the capture boundaries, so route
 	// them to an isolated persistSession:false CC process without session sync.
-	if (options?.cacheRetention === "none") {
-		debug(`provider: one-off summarizer call (cacheRetention none) routed to isolated summary, msgs=${context.messages.length}`);
+	if (isHostSummaryCall(options)) {
+		debug(`provider: one-off summarizer call (cacheRetention none or host-marked signal) routed to isolated summary, msgs=${context.messages.length}`);
 		traceEvent("route", { callId: traceCallId, route: "isolated-summary" });
-		return isolatedStreamFn(model, context, options, traceCallId);
+		// Normalize the marker: runIsolatedSummary's extraction keys off cacheRetention "none".
+		return isolatedStreamFn(model, context, { ...options, cacheRetention: "none" }, traceCallId);
 	}
 
 	const stream = createAssistantMessageEventStream();
