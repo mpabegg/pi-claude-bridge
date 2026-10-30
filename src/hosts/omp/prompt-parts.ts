@@ -46,12 +46,19 @@ export class OmpPromptShapeError extends Error {
 	}
 }
 
-/** `open`..`close` inclusive, from the first `open` to the first `close` after it. */
-function block(text: string, open: string, close: string): string | undefined {
+/** The blocks omp renders under `# Skills & Rules`, in template order. */
+const SKILLS_BLOCKS = [
+	["<skills>", "</skills>"],
+	["<generic-rules>", "</generic-rules>"],
+	["<domain-rules>", "</domain-rules>"],
+] as const;
+
+/** `[start, end)` of `open`..`close` inclusive, from the first `open` to the first `close` after it. */
+function blockSpan(text: string, open: string, close: string): [number, number] | undefined {
 	const start = text.indexOf(open);
 	if (start < 0) return undefined;
 	const end = text.indexOf(close, start);
-	return end < 0 ? undefined : text.slice(start, end + close.length);
+	return end < 0 ? undefined : [start, end + close.length];
 }
 
 /** The first line-start index at or after `from` where a line begins with one of `prefixes`. */
@@ -123,14 +130,16 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	const closeEnd = close + PROJECT_CLOSE.length;
 	sections["omp-project-context"] = projectElement.slice(open, closeEnd);
 
-	const skills = block(template, "<skills>", "</skills>");
-	if (skills) sections["omp-skills"] = skills;
-
-	const rules = [
-		block(template, "<generic-rules>", "</generic-rules>"),
-		block(template, "<domain-rules>", "</domain-rules>"),
-	].filter((b): b is string => b !== undefined);
-	if (rules.length > 0) sections["omp-rules"] = rules.join("\n");
+	// From the `# Skills & Rules` heading through the end of the last skills or rules
+	// block, so omp's directive to read a matching skill travels with the list. One
+	// section, `omp-skills`, holds skills and rules alike.
+	const headingLine = template.indexOf(`\n${SKILLS_HEADING}`);
+	const skillsHeading = template.startsWith(SKILLS_HEADING) ? 0 : headingLine < 0 ? -1 : headingLine + 1;
+	const spans = SKILLS_BLOCKS.map(([o, c]) => blockSpan(template, o, c)).filter((b): b is [number, number] => b !== undefined);
+	if (spans.length > 0) {
+		const start = Math.min(...spans.map(([from]) => from), ...(skillsHeading >= 0 ? [skillsHeading] : []));
+		sections["omp-skills"] = template.slice(start, Math.max(...spans.map(([, to]) => to)));
+	}
 
 	// omp renders the `# Skills & Rules` heading only with something under it. Finding
 	// the heading but none of the blocks, or an element that omp rendered as the skills
@@ -138,8 +147,7 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	// (a subagent's prompt, extension text, the project element with its user
 	// instructions) are free text that may quote the tag, so only how an element starts
 	// counts.
-	const skillsHeading = template.startsWith(SKILLS_HEADING) ? 0 : template.indexOf(`\n${SKILLS_HEADING}`);
-	if (skillsHeading >= 0 && !skills && rules.length === 0) throw new OmpPromptShapeError("<skills>");
+	if (skillsHeading >= 0 && spans.length === 0) throw new OmpPromptShapeError("<skills>");
 	for (let i = 1; i < systemPrompt.length; i++) {
 		if (i === projectIndex) continue;
 		const head = systemPrompt[i].trimStart();

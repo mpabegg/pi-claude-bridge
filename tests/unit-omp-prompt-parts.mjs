@@ -20,12 +20,19 @@ describe("omp prompt-parts extractor (omp 18.14 fixture)", () => {
 		assert.ok(!ctx.includes("<critical>"));
 	});
 
-	it("extracts the skills block", () => {
+	it("extracts the skills section from its heading through the skills block", () => {
 		const { sections } = extractOmpPromptParts(fixture);
 		const skills = sections["omp-skills"];
 		assert.ok(skills.includes("FIXTURE-SKILL"));
-		assert.ok(skills.startsWith("<skills>"));
+		assert.ok(skills.startsWith("# Skills & Rules\n"));
 		assert.ok(skills.endsWith("</skills>"));
+		assert.ok(!skills.includes("§ Runtime"));
+		assert.ok(!skills.includes("# Internal URLs"));
+	});
+
+	it("the skills section carries omp's read-skill directive", () => {
+		const { sections } = extractOmpPromptParts(fixture);
+		assert.ok(sections["omp-skills"].includes("Matching skill → MUST read `skill://<name>` first.\n<skills>"));
 	});
 
 	it("extracts the personality and internal URLs sections", () => {
@@ -69,6 +76,7 @@ describe("omp prompt-parts extractor (omp 18.14 fixture)", () => {
 	it("omits generic and domain rules absent from the fixture", () => {
 		const { sections } = extractOmpPromptParts(fixture);
 		assert.ok(!("omp-rules" in sections));
+		assert.ok(!sections["omp-skills"].includes("-rules>"));
 	});
 });
 
@@ -82,13 +90,35 @@ describe("omp prompt-parts extractor (synthetic prompts)", () => {
 		assert.equal(parts.appendSystemPrompt, undefined);
 	});
 
-	it("extracts generic and domain rules", () => {
+	it("extracts generic and domain rules into the skills section", () => {
 		const generic = "<generic-rules>\ng1\n</generic-rules>";
 		const domain = "<domain-rules>\nd1\n</domain-rules>";
 		const { sections } = extractOmpPromptParts([`${role}\n\n${generic}\n${domain}\n\n§ Workflow\nx`, project]);
-		assert.equal(sections["omp-rules"], `${generic}\n${domain}`);
-		const only = extractOmpPromptParts([`${role}\n${domain}`, project]).sections["omp-rules"];
+		assert.equal(sections["omp-skills"], `${generic}\n${domain}`);
+		assert.ok(!("omp-rules" in sections));
+		const only = extractOmpPromptParts([`${role}\n${domain}`, project]).sections["omp-skills"];
 		assert.equal(only, domain);
+	});
+
+	it("forwards the whole Skills & Rules section, directive, skills and rules, as one section", () => {
+		const body = [
+			"# Skills & Rules",
+			"Matching skill → MUST read `skill://<name>` first.",
+			"<skills>",
+			"- a: b",
+			"</skills>",
+			"",
+			"<generic-rules>",
+			"g1",
+			"</generic-rules>",
+			"",
+			"<domain-rules>",
+			"- d (*.ts): d1",
+			"</domain-rules>",
+		].join("\n");
+		const { sections } = extractOmpPromptParts([`${role}\n§ Runtime\n${body}\n\n# Internal URLs\nx`, project]);
+		assert.equal(sections["omp-skills"], body);
+		assert.ok(!("omp-rules" in sections));
 	});
 
 	it("keeps a project-context block whose content contains the closing tag", () => {
