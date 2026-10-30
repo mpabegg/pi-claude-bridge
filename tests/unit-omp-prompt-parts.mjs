@@ -176,10 +176,11 @@ describe("omp prompt-parts extractor (synthetic prompts)", () => {
 		assert.doesNotThrow(() => extractOmpPromptParts([role, project]));
 	});
 
-	it("throws naming <skills> in element 0 when the skills block is in another element", () => {
+	it("throws naming <skills> in the template element when the skills block is in another element", () => {
 		assert.throws(
 			() => extractOmpPromptParts([role, "<skills>\n- a: b\n</skills>", project]),
-			(err) => err instanceof OmpPromptShapeError && err.missing === "<skills> in element 0",
+			(err) => err instanceof OmpPromptShapeError && err.missing === "<skills> in the template element"
+				&& err.message.includes("element 1"),
 		);
 	});
 
@@ -195,3 +196,57 @@ describe("omp prompt-parts extractor (synthetic prompts)", () => {
 		);
 	});
 });
+
+describe("omp prompt-parts extractor (free text quoting omp markers)", () => {
+	// omp builds a subagent's prompt as [...defaultPrompt.slice(0, -1), subagentPrompt, project]
+	// (task/executor.ts); extensions append after that.
+	const [template, relay, projectElement, appended] = fixture;
+	const subagentPrompt = (text) => [template, relay, text, projectElement, appended];
+
+	it("a subagent element quoting <skills> does not throw", () => {
+		const subagent = "You are a subagent.\n\nParent context: the template lists skills in <skills>...</skills>.";
+		const parts = extractOmpPromptParts(subagentPrompt(subagent));
+		assert.equal(parts.sections["omp-extra-1"], subagent);
+		assert.ok(parts.sections["omp-skills"].includes("FIXTURE-SKILL"));
+	});
+
+	it("a subagent element quoting <project-context> and </project-context> is forwarded as an extra while the real project element is used", () => {
+		const subagent = "You are a subagent.\n\nParent context: omp wraps repo rules in <project-context> ... </project-context>.";
+		const parts = extractOmpPromptParts(subagentPrompt(subagent));
+		const ctx = parts.sections["omp-project-context"];
+		assert.ok(ctx.startsWith("<project-context>"));
+		assert.ok(ctx.includes("FIXTURE-AGENTS-RULE"));
+		assert.equal(parts.sections["omp-extra-1"], subagent);
+		assert.equal(parts.sections["omp-extra-2"], "FIXTURE-EXTENSION-APPEND");
+		assert.ok(parts.appendSystemPrompt.includes("## User Instructions"));
+		const text = allText(parts);
+		for (const dropped of ["<critical>", "# Memory", "Auto-Learn"]) {
+			assert.ok(!text.includes(dropped), `output must not contain ${dropped}`);
+		}
+	});
+
+	it("takes the last element that starts with <project-context> as the project element", () => {
+		const decoy = "<project-context>\n<workstation>decoy</workstation>\n</project-context>";
+		const parts = extractOmpPromptParts([template, relay, decoy, projectElement]);
+		assert.ok(parts.sections["omp-project-context"].includes("FIXTURE-AGENTS-RULE"));
+		assert.equal(parts.sections["omp-extra-1"], decoy);
+	});
+
+	it("a user instruction mentioning <skills> does not throw", () => {
+		const parts = extractOmpPromptParts([template, relay, `${projectElement}\nCheck <skills> before acting.`, appended]);
+		assert.ok(parts.appendSystemPrompt.endsWith("Check <skills> before acting."));
+	});
+
+	it("an extension element mentioning <skills> mid-text does not throw", () => {
+		const parts = extractOmpPromptParts([template, relay, projectElement, "Prefer the entries in <skills>."]);
+		assert.equal(parts.sections["omp-extra-1"], "Prefer the entries in <skills>.");
+	});
+
+	it("throws when an element outside the template starts with the skills heading", () => {
+		assert.throws(
+			() => extractOmpPromptParts(["§ Role\nYou are omp.", "# Skills & Rules\nMatching skill.\n<skills>\n- a: b\n</skills>", projectElement]),
+			(err) => err instanceof OmpPromptShapeError && err.missing === "<skills> in the template element",
+		);
+	});
+});
+

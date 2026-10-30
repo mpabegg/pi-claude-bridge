@@ -8,9 +8,11 @@ import type { PromptRecordOptions } from "../../host-prompt.js";
 // the last-closing-tag rule below stays explicit.
 //
 // Element layout: [0] the rendered template, starting at `§ Role`; any harness
-// elements after it (eval prelude, `# Browser Relay`, ...); the project element,
-// `<project-context>` then a `<critical>` block then trailing text (`# Memory`,
-// user instructions); then anything extensions appended.
+// elements after it (eval prelude, `# Browser Relay`, ...); for a subagent, its own
+// prompt, which embeds the parent's free text; the project element, starting with
+// `<project-context>` then a `<critical>` block then trailing text (`# Memory`, user
+// instructions); then anything extensions appended. Free text may quote any marker, so
+// an element is identified by how it starts, never by what it mentions.
 
 const TEMPLATE_HEADING = "§ Role";
 const PROJECT_OPEN = "<project-context>";
@@ -37,8 +39,8 @@ const HARNESS_TRAILING_SECTIONS: Record<string, number> = {
  *  marker that was expected. */
 export class OmpPromptShapeError extends Error {
 	readonly missing: string;
-	constructor(missing: string) {
-		super(`omp system prompt has an unexpected shape: ${missing} not found`);
+	constructor(missing: string, detail?: string) {
+		super(`omp system prompt has an unexpected shape: ${missing} not found${detail ? ` (${detail})` : ""}`);
 		this.name = "OmpPromptShapeError";
 		this.missing = missing;
 	}
@@ -101,9 +103,10 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	if (template === undefined || !template.includes(TEMPLATE_HEADING)) {
 		throw new OmpPromptShapeError(TEMPLATE_HEADING);
 	}
+	// omp appends the project element last; a subagent's own element before it may quote the tag.
 	let projectIndex = -1;
-	for (let i = 1; i < systemPrompt.length; i++) {
-		if (systemPrompt[i].includes(PROJECT_OPEN)) {
+	for (let i = systemPrompt.length - 1; i >= 1; i--) {
+		if (systemPrompt[i].trimStart().startsWith(PROJECT_OPEN)) {
 			projectIndex = i;
 			break;
 		}
@@ -130,14 +133,19 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	if (rules.length > 0) sections["omp-rules"] = rules.join("\n");
 
 	// omp renders the `# Skills & Rules` heading only with something under it. Finding
-	// the heading but none of the blocks, or the skills elsewhere, means the template
-	// moved and skills would be silently lost. The project-context block is user text
-	// that may quote the tag, so it is not searched.
+	// the heading but none of the blocks, or an element that omp rendered as the skills
+	// section, means the template moved and skills would be silently lost. Other elements
+	// (a subagent's prompt, extension text, the project element with its user
+	// instructions) are free text that may quote the tag, so only how an element starts
+	// counts.
 	const skillsHeading = template.startsWith(SKILLS_HEADING) ? 0 : template.indexOf(`\n${SKILLS_HEADING}`);
 	if (skillsHeading >= 0 && !skills && rules.length === 0) throw new OmpPromptShapeError("<skills>");
 	for (let i = 1; i < systemPrompt.length; i++) {
-		const element = i === projectIndex ? projectElement.slice(0, open) + projectElement.slice(closeEnd) : systemPrompt[i];
-		if (element.includes("<skills>")) throw new OmpPromptShapeError("<skills> in element 0");
+		if (i === projectIndex) continue;
+		const head = systemPrompt[i].trimStart();
+		if (head.startsWith(SKILLS_HEADING) || head.startsWith("<skills>")) {
+			throw new OmpPromptShapeError("<skills> in the template element", `skills section found in element ${i}`);
+		}
 	}
 
 	// The personality's own sub-headings are `# ` too, so it runs to the next `§`.
