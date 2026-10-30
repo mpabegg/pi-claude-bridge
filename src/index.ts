@@ -32,6 +32,7 @@ import { collectCarriedAttachments } from "./attachments.js";
 import { createToolServer } from "./mcp-server.js";
 import { buildActionSummary, type ToolCallState } from "./askclaude-ui.js";
 import { askClaudeCallTags, askClaudeToolDescription, buildAskClaudeParams, resolveAskClaudeDefaults, resolveAskClaudeMode, type AskClaudeMode } from "./askclaude-schema.js";
+import { normalizeHostMessages } from "./host-messages.js";
 import { nonSystemMessages, toBridgeContext } from "./transcript.js";
 import { forgetSessionCwd, rememberSessionCwd, rememberSummarySession, sessionCwdFor, summarySessionFor } from "./session-cwd.js";
 import { updateUsage, type SdkUsage } from "./usage.js";
@@ -1806,6 +1807,9 @@ function dropParkedQuery(c: QueryContext): void {
 /** Provider entry point. Pi calls this for each new prompt and each tool result.
  *  Two cases: tool result delivery (active query) or fresh query. */
 function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	// Hosts like Oh My Pi send `developer` messages; read them as user context before any routing.
+	const hostMessages = normalizeHostMessages(context.messages);
+	if (hostMessages !== context.messages) context = { ...context, messages: hostMessages };
 	showStartupNoticeOnce();
 	// pi hands providers a transcript (prompt/tools folded into system messages) — fold it
 	// back out to the prompt/tools fields every syncSharedSession call and
@@ -2341,7 +2345,7 @@ async function promptAndWait(
 	const askClaudeSessionId = options?.piSessionId ?? null;
 	const traceQueryId = traceId("askclaude");
 	await waitForSessionWriter(sessionStateFor(askClaudeSessionId)?.ccSessionId, signal);
-	const contextWithPrompt = [...(options?.context ?? []), { role: "user" as const, content: prompt, timestamp: Date.now() }];
+	const contextWithPrompt = [...normalizeHostMessages(options?.context ?? []), { role: "user" as const, content: prompt, timestamp: Date.now() }];
 	const sync = syncSharedSession(contextWithPrompt, cwd, undefined, cliModel, options?.isolated ? null : askClaudeSessionId, traceQueryId, false, !options?.isolated);
 	const resumeSessionId = sync.sessionId;
 
