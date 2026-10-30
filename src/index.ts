@@ -2718,7 +2718,12 @@ export default function (pi: ExtensionAPI) {
 		// Later instance: register only if this session's registry lacks the provider.
 		debug(`provider: deferring registration decision to session_start (module=${moduleInstanceId})`);
 		pi.on("session_start", (_event, ctx) => {
-			if (ctx.modelRegistry.getProvider(PROVIDER_ID)) {
+			const registry = ctx.modelRegistry as {
+				getProvider?: (id: string) => unknown;
+				hasProvider?: (id: string) => boolean;
+			};
+			const has = registry.getProvider ? Boolean(registry.getProvider(PROVIDER_ID)) : Boolean(registry.hasProvider?.(PROVIDER_ID));
+			if (has) {
 				debug(`provider: registry already has ${PROVIDER_ID}, skipping registration (module=${moduleInstanceId})`);
 				return;
 			}
