@@ -67,7 +67,14 @@ export interface UsageProvider {
 export interface UsageDeps {
   query: typeof query;
   pathToClaudeCodeExecutable?: string;
+  /** Leave the inherited Anthropic auth variables out of the child's env, so
+   *  Claude Code uses the subscription login (`provider.isolateAnthropicEnv`). */
+  isolateAnthropicEnv?: boolean;
 }
+
+// Same variables as index.ts's ANTHROPIC_AUTH_ENV (not exported there). With any
+// of them set, Claude Code reports no plan limits for the login.
+const ANTHROPIC_AUTH_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"] as const;
 
 /** Upper bound when the caller passes no signal; omp's own default is 10s. */
 const USAGE_TIMEOUT_MS = 15_000;
@@ -245,6 +252,9 @@ async function requestUsage(
   // index.ts sets this process-wide; with it the CLI skips the plan usage
   // fetch and get_usage answers `rate_limits: null`.
   delete env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+  if (deps.isolateAnthropicEnv === true) {
+    for (const name of ANTHROPIC_AUTH_ENV) delete env[name];
+  }
   const sdkQuery = deps.query({
     prompt: noPrompt(),
     options: {

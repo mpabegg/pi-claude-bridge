@@ -74,11 +74,14 @@ export function createOmpEntry(activate: (pi: any) => void, deps: OmpEntryDeps):
 }
 
 const realDeps: OmpEntryDeps = {
-	usage: () =>
-		createUsageProvider({
+	usage: () => {
+		const provider = loadConfig(process.cwd()).provider;
+		return createUsageProvider({
 			query,
-			pathToClaudeCodeExecutable: loadConfig(process.cwd()).provider?.pathToClaudeCodeExecutable,
-		}),
+			pathToClaudeCodeExecutable: provider?.pathToClaudeCodeExecutable,
+			isolateAnthropicEnv: provider?.isolateAnthropicEnv,
+		});
+	},
 	extract: extractOmpPromptParts,
 };
 

@@ -192,6 +192,45 @@ describe("usage provider", () => {
 		}
 	});
 
+	describe("inherited Anthropic auth env", () => {
+		const NAMES = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"];
+
+		/** Runs `body` with the three variables set in process.env, then restores them. */
+		async function withAnthropicEnv(body) {
+			const previous = Object.fromEntries(NAMES.map((name) => [name, process.env[name]]));
+			for (const name of NAMES) process.env[name] = `test-${name}`;
+			try {
+				await body();
+			} finally {
+				for (const name of NAMES) {
+					if (previous[name] === undefined) delete process.env[name];
+					else process.env[name] = previous[name];
+				}
+			}
+		}
+
+		it("usage child drops inherited Anthropic auth env when isolateAnthropicEnv is set", async () => {
+			await withAnthropicEnv(async () => {
+				const fake = withLimits({ five_hour: { utilization: 1 } });
+				await createUsageProvider({ query: fake.query, isolateAnthropicEnv: true }).fetchUsage(PARAMS);
+				for (const name of NAMES) assert.equal(fake.env()?.[name], undefined, name);
+				// Other inherited env and the child's own settings survive.
+				assert.equal(fake.env()?.PATH, process.env.PATH);
+				assert.equal(fake.env()?.ENABLE_CLAUDEAI_MCP_SERVERS, "0");
+				// The parent's env is untouched; only the child's copy changes.
+				for (const name of NAMES) assert.equal(process.env[name], `test-${name}`, name);
+			});
+		});
+
+		it("usage child keeps inherited Anthropic auth env by default", async () => {
+			await withAnthropicEnv(async () => {
+				const fake = withLimits({ five_hour: { utilization: 1 } });
+				await providerFor(fake).fetchUsage(PARAMS);
+				for (const name of NAMES) assert.equal(fake.env()?.[name], `test-${name}`, name);
+			});
+		});
+	});
+
 	it("SDK errors reject and still close the process", async () => {
 		const fake = fakeSdk(async () => {
 			throw new Error("Claude Code process exited with code 1");

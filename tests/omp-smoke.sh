@@ -36,4 +36,10 @@ jq -e '[.reports[0].limits[].window.id] | (index("5h") != null) and (index("7d")
   || fail "omp usage lacks 5h and 7d windows for claude-bridge"
 echo "ok: omp usage reports 5h and 7d windows"
 
+jq -e '.reports[0].limits[] | select(.window.id == "5h")
+       | (.amount.usedFraction | type) == "number" or (.amount.used | type) == "number"' <<<"$USAGE" >/dev/null \
+  || { echo "claude-bridge usage notes: $(jq -c '.reports[0].notes // []' <<<"$USAGE")" >&2
+       fail "claude-bridge 5h usage row has no numeric amount.usedFraction or amount.used"; }
+echo "ok: claude-bridge 5h usage row has a numeric amount"
+
 echo "PASS"
