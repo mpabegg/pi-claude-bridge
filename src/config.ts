@@ -27,6 +27,10 @@ export interface Config {
 	provider?: {
 		strictMcpConfig?: boolean;
 		autoMemoryEnabled?: boolean;
+		// Load Claude Code's own settings (user, project, local) on provider turns:
+		// ~/.claude hooks, plugins, output style, and the `env` / `apiKeyHelper`
+		// that Bedrock/Vertex setups keep in settings.json. Default false.
+		loadClaudeSettings?: boolean;
 		pathToClaudeCodeExecutable?: string;
 		// Subscription plan tier. Setting to "max" enables Opus 4.6 at 1M context
 		plan?: "pro" | "max";
