@@ -70,7 +70,9 @@ const CC_CHILD_ENV = {
 //
 // Excludes rather than settingSources: the source gate that suppresses CLAUDE.md
 // is the same one that reads settings.json, where Bedrock/Vertex users keep
-// `env` and `apiKeyHelper`. Patterns are matched with picomatch against absolute
+// `env` and `apiKeyHelper`. Provider turns load no settings unless
+// `provider.loadClaudeSettings` is true; the excludes still apply to that
+// opt-in, which is the only time Claude Code reads these files. Patterns are matched with picomatch against absolute
 // paths; the filename globs cover user, ancestor, project and .claude/ copies,
 // while rules need their own. Managed/policy memory is not excludable by design.
 const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
@@ -2060,8 +2062,8 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 		// MCP auto-loading suppression: CC reads MCP servers from ~/.claude.json (top-level
 		// + per-project) and .mcp.json. Since pi executes tools (not CC), those are pure
 		// token overhead. --strict-mcp-config tells the binary to use ONLY mcpServers passed
-		// programmatically and ignore filesystem MCP entries — applied unconditionally because
-		// settingSources is left at CC's default, which loads all sources.
+		// programmatically and ignore filesystem MCP entries — applied unconditionally
+		// because `provider.loadClaudeSettings` can leave CC loading all sources.
 		const strictMcpConfigEnabled = providerSettings.strictMcpConfig !== false;
 		const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
 
@@ -2075,7 +2077,7 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 
 		// Suppress claude.ai cloud MCP servers (Figma/Canva/etc. auto-discovered via OAuth
 		// when the user is logged into Anthropic). These are a separate code path from
-		// filesystem MCP and are NOT blocked by --strict-mcp-config or settingSources=undefined.
+		// filesystem MCP and are NOT blocked by --strict-mcp-config or by loading all settings sources.
 		// The native CC binary gates them on env var ENABLE_CLAUDEAI_MCP_SERVERS: setting it
 		// to "0"/"false"/"no"/"off" makes the loader return early before any cloud fetch.
 		// DISABLE_AUTO_COMPACT=1: pi owns context-management and propagates its own
@@ -2114,6 +2116,10 @@ function streamClaudeAgentSdk(model: Model<any>, context: Context, options?: Sim
 				type: "preset", preset: "claude_code",
 				append: systemPromptAppend ? systemPromptAppend : undefined,
 			},
+			// No Claude Code settings (hooks, plugins, output style, env) reach
+			// provider turns unless the user opts in; true leaves CC's default
+			// sources. The isolated summary path always passes [].
+			...(providerSettings.loadClaudeSettings === true ? {} : { settingSources: [] as SettingSource[] }),
 			extraArgs,
 			...(effort ? { effort } : {}),
 			...(mcpServers ? { mcpServers } : {}),

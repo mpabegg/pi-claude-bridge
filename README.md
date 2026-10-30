@@ -73,6 +73,7 @@ Config: `~/.pi/agent/claude-bridge.json` (global) or the project Pi config direc
 - `longContextExtraUsage` — set to `true` to enable 1M context models even if they cost money through Extra Usage on your plan. It enables Sonnet 4.6 with 1M on every plan and Opus 4.6 with 1M on Pro.
 - `forceTwoHundredK` — array of model ids to pin to 200K context (bare id, no `[1m]` suffix). Use if pi-ai declares a model at 1M but Claude Code won't serve it on your plan.
 - `strictMcpConfig` — block MCP servers from `~/.claude.json` / `.mcp.json` (default `true`). Cloud MCP (Gmail/Drive via claude.ai OAuth) is always blocked.
+- `loadClaudeSettings` — load Claude Code's own settings (`~/.claude/settings.json` and the project's `.claude/settings*.json`) on provider turns (default `false`). Off, `~/.claude` hooks, plugins and output styles do not reach pi turns. Turn it on for Bedrock/Vertex setups that keep `env` or `apiKeyHelper` in `settings.json`, or to run your Claude Code hooks and plugins in pi. Pi still supplies the context files, so Claude Code's own `CLAUDE.md` / `AGENTS.md` files stay excluded either way. AskClaude is unaffected.
 - `autoMemoryEnabled` — enable Claude Code's auto-memory system (default `false`)
 - `pathToClaudeCodeExecutable` — path to the `claude` binary. Useful if your OS/filesystem has the SDK's bundled musl/glibc binaries in a place where they can't run. For example, with Nix you can set the binary to e.g. `"/home/you/.nix-profile/bin/claude"`.
 
@@ -117,13 +118,13 @@ To add instructions, use `message`, `context`, or a system-message edit that kee
 
 ### Hooks written for Claude Code
 
-`~/.claude/settings.json` hooks fire inside bridge turns, so a hook injecting Claude-specific guidance duplicates what pi's extensions already provide. pi sets `PI_CODING_AGENT=true` for child processes, including the Claude Code child; a hook can skip itself on that:
+Provider turns load no Claude Code settings by default, so `~/.claude/settings.json` hooks, plugins and output styles do not run inside them. Set `provider.loadClaudeSettings` to `true` to load them. A hook that injects Claude-specific guidance then duplicates what pi's extensions already provide; pi sets `PI_CODING_AGENT=true` for child processes, including the Claude Code child, so a hook can skip itself on that:
 
 ```sh
 [ -n "$PI_CODING_AGENT" ] && exit 0
 ```
 
-Hooks do not fire on isolated summary queries.
+Hooks never fire on isolated summary queries, whatever `loadClaudeSettings` says.
 
 ### Compaction and branch summaries
 
