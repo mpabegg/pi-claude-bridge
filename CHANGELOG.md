@@ -2,6 +2,7 @@
 
 ## UNRELEASED
 
+- **Fix: `developer` messages from other hosts no longer throw** — Hosts such as Oh My Pi put `developer` messages (`@file` mentions, custom and hook messages) into the provider context, and the history digest rejected any role but user, assistant and tool result. The bridge now reads them as user messages at the provider entry point. pi never sends them, so its behavior is unchanged.
 - **Fix: bash default timeout broke the prompt cache on rebuild (#203)** — The 120s default now applies when the command runs instead of being saved in pi's history, so rebuilt sessions match Claude Code's. Thanks @cad0p and @superninjv.
 - **Fix: active history edits** — Restart Claude Code from pi's selected history before delivering tool results, even without a rewrite event. Thanks @rochecompaan.
 - **Fix: keep Claude Code history that still matches pi's (#222)** — The bridge now compares message content instead of counting messages, so it catches edits and keeps everything up to the first difference. Rewinds, edits, interruptions and restarts fork or trim the Claude Code session instead of rebuilding it, preserving prompt cache and thinking. Fixes #30, #42, #62, #86, #103, #165, #182, #202; helps #55, #77, #114, #207. Builds on PR #136; thanks @sonSunnoi.
