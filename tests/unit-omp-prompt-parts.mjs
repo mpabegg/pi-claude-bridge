@@ -45,6 +45,19 @@ describe("omp prompt-parts extractor (omp 18.14 fixture)", () => {
 		assert.ok(!sections["omp-internal-urls"].includes("# Tool Inventory"));
 	});
 
+	it("extracts the xd:// tool devices section with its mechanism and catalog", () => {
+		const parts = extractOmpPromptParts(fixture);
+		const xd = parts.sections["omp-xd-devices"];
+		assert.ok(xd.startsWith("# xd:// Tool Devices"));
+		assert.ok(xd.includes("Write JSON args as `content` to `xd://<tool>`"));
+		assert.ok(xd.includes("xd://ast_grep"));
+		assert.ok(xd.includes("Read xd://<tool> for full docs"));
+		const text = allText(parts);
+		for (const dropped of ["§ Tool Policy", "§ Workflow", "# Tool Inventory"]) {
+			assert.ok(!text.includes(dropped), `output must not contain ${dropped}`);
+		}
+	});
+
 	it("forwards extension-appended elements verbatim", () => {
 		const { sections } = extractOmpPromptParts(fixture);
 		assert.equal(sections["omp-extra-1"], "FIXTURE-EXTENSION-APPEND");
@@ -54,8 +67,8 @@ describe("omp prompt-parts extractor (omp 18.14 fixture)", () => {
 	it("takes the text after the trailing critical block as the append text", () => {
 		const parts = extractOmpPromptParts(fixture);
 		assert.ok(parts.appendSystemPrompt.includes("## User Instructions"));
-		assert.ok(!parts.appendSystemPrompt.includes("# Memory"));
-		assert.ok(!parts.appendSystemPrompt.includes("Auto-Learn"));
+		assert.ok(parts.appendSystemPrompt.includes("# Memory"));
+		assert.ok(parts.appendSystemPrompt.includes("Auto-Learn"));
 		assert.ok(!parts.appendSystemPrompt.includes("<critical>"));
 		assert.ok(!parts.appendSystemPrompt.includes("</project-context>"));
 	});
@@ -172,20 +185,15 @@ describe("omp prompt-parts extractor (synthetic prompts)", () => {
 		);
 	});
 
-	it("drops omp's Memory and Auto-Learn guidance but keeps user instructions and unknown sections", () => {
+	it("forwards omp's Memory and Auto-Learn guidance with user instructions and unknown sections", () => {
 		const trailing = [
-			"# Memory", "memory prose", "- bullet",
-			"## Auto-Learn (experimental)", "learn prose", "```", "# not a heading", "```",
+			"# Memory", "memory prose",
+			"## Auto-Learn (experimental)", "learn prose",
 			"## User Instructions", "USER-TEXT",
 			"## Something New", "NEW-SECTION-TEXT",
 		].join("\n");
 		const parts = extractOmpPromptParts([role, `${project}\n\n${trailing}`]);
-		assert.equal(parts.appendSystemPrompt, "## User Instructions\nUSER-TEXT\n## Something New\nNEW-SECTION-TEXT");
-	});
-
-	it("omits the append text when only omp's memory guidance follows the project context", () => {
-		const parts = extractOmpPromptParts([role, `${project}\n\n# Memory\nm\n## Auto-Learn (experimental)\nl`]);
-		assert.equal(parts.appendSystemPrompt, undefined);
+		assert.equal(parts.appendSystemPrompt, trailing);
 	});
 
 	it("forwards a middle element that is not a known harness element", () => {
@@ -250,8 +258,9 @@ describe("omp prompt-parts extractor (free text quoting omp markers)", () => {
 		assert.equal(parts.sections["omp-extra-2"], "FIXTURE-EXTENSION-APPEND");
 		assert.ok(parts.appendSystemPrompt.includes("## User Instructions"));
 		const text = allText(parts);
-		for (const dropped of ["<critical>", "# Memory", "Auto-Learn"]) {
-			assert.ok(!text.includes(dropped), `output must not contain ${dropped}`);
+		assert.ok(!text.includes("<critical>"));
+		for (const kept of ["# Memory", "Auto-Learn"]) {
+			assert.ok(text.includes(kept), `output must contain ${kept}`);
 		}
 	});
 

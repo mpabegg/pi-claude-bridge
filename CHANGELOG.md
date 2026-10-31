@@ -2,6 +2,7 @@
 
 ## UNRELEASED
 
+- **Fix: omp xd:// tool devices unreachable from Claude** — The omp prompt extractor dropped `# xd:// Tool Devices` and the `# Memory` / Auto-Learn guidance, so Claude never learned how to call ast_grep, lsp, memory or MCP-server tools that omp mounts as `xd://` devices; both are now forwarded.
 - **Fix: provider lookup on alternate hosts** — Later bridge instances fall back to `hasProvider` when the host registry lacks `getProvider`, preserving pi's existing registration behavior.
 - **Fix: `developer` messages from other hosts no longer throw** — Hosts such as Oh My Pi put `developer` messages (`@file` mentions, custom and hook messages) into the provider context, and the history digest rejected any role but user, assistant and tool result. The bridge now reads them as user messages at the provider entry point. pi never sends them, so its behavior is unchanged.
 - **Fix: array system prompts crashed prompt capture (#232)** — Hosts that pass the system prompt as a list of parts, such as Oh My Pi, failed every turn with `key.charCodeAt is not a function`. Capture keys now join the parts. A host without `systemPromptOptions` can register a resolver (`src/host-prompt.ts`) that supplies the context files, skills and sections. When an array prompt arrives without them, or a registered resolver supplies none or throws, the turn fails with an error that names the missing `systemPromptOptions` (and the resolver's error) instead of running without them.

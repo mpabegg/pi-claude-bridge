@@ -25,15 +25,6 @@ const SKILLS_HEADING = "# Skills & Rules";
  *  guidance, not user content. Any other element there is forwarded. */
 const HARNESS_ELEMENT_HEADINGS = ["# Browser Relay"];
 
-/** Headings of omp-shipped prose in the text after the project context, with the
- *  deepest heading level that still ends the section. `# Memory` ends at any heading
- *  (so the `## User Instructions` that follows it survives); an unrecognised heading
- *  is always kept, so a new section errs toward forwarding user text. */
-const HARNESS_TRAILING_SECTIONS: Record<string, number> = {
-	"# Memory": 6,
-	"## Auto-Learn (experimental)": 2,
-};
-
 /** The prompt does not have the shape this extractor was written against: omp changed
  *  its template, or the host is not the omp it was recorded from. `missing` is the
  *  marker that was expected. */
@@ -77,32 +68,6 @@ function section(text: string, heading: string, stops: readonly string[]): strin
 	const at = text.startsWith(heading) ? 0 : text.indexOf(`\n${heading}`) + 1;
 	if (at <= 0 && !text.startsWith(heading)) return undefined;
 	return text.slice(at, nextLineStart(text, at + heading.length, stops)).trim();
-}
-
-/** The heading level of a markdown heading line, or 0. */
-function headingLevel(line: string): number {
-	let level = 0;
-	while (level < line.length && line[level] === "#") level++;
-	return level >= 1 && level <= 6 && line[level] === " " ? level : 0;
-}
-
-/** `text` without omp's own memory guidance sections. Headings inside fenced code are not headings. */
-function dropHarnessTrailingSections(text: string): string {
-	const kept: string[] = [];
-	let inFence = false;
-	let dropUntilLevel = 0; // 0: not dropping
-	for (const line of text.split("\n")) {
-		if (line.startsWith("```")) inFence = !inFence;
-		const level = inFence ? 0 : headingLevel(line);
-		if (level > 0) {
-			if (dropUntilLevel > 0 && level <= dropUntilLevel) dropUntilLevel = 0;
-			if (dropUntilLevel === 0 && line.trimEnd() in HARNESS_TRAILING_SECTIONS) {
-				dropUntilLevel = HARNESS_TRAILING_SECTIONS[line.trimEnd()];
-			}
-		}
-		if (dropUntilLevel === 0) kept.push(line);
-	}
-	return kept.join("\n").trim();
 }
 
 export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRecordOptions {
@@ -163,6 +128,12 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	const internalUrls = section(template, "# Internal URLs", ["# ", "§ "]);
 	if (internalUrls) sections["omp-internal-urls"] = internalUrls;
 
+	// Discoverable tools (MCP servers, ast_grep, lsp, memory, ...) are mounted as xd://
+	// devices instead of being listed as tools; this section teaches the mechanism and
+	// carries the catalog. Its `## Additional devices` sub-heading stays inside.
+	const xdDevices = section(template, "# xd:// Tool Devices", ["# ", "§ "]);
+	if (xdDevices) sections["omp-xd-devices"] = xdDevices;
+
 	// Everything but the project element and omp's known harness elements is user or
 	// extension text, in array order.
 	let extra = 0;
@@ -177,14 +148,15 @@ export function extractOmpPromptParts(systemPrompt: readonly string[]): PromptRe
 	}
 
 	// What follows the project context: a `<critical>` block (omp's delivery reminders,
-	// harness), then omp's memory guidance (harness) and the user's instructions.
+	// harness), then omp's memory guidance and the user's instructions, both forwarded:
+	// `learn`/`manage_skill` are bridged and memory is reachable through xd://.
 	let trailing = projectElement.slice(closeEnd).trimStart();
 	if (trailing.startsWith(CRITICAL_OPEN)) {
 		const criticalEnd = trailing.indexOf(CRITICAL_CLOSE);
 		if (criticalEnd < 0) throw new OmpPromptShapeError(CRITICAL_CLOSE);
 		trailing = trailing.slice(criticalEnd + CRITICAL_CLOSE.length);
 	}
-	trailing = dropHarnessTrailingSections(trailing);
+	trailing = trailing.trim();
 
 	return {
 		contextFiles: [],
