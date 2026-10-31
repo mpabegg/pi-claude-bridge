@@ -78,3 +78,18 @@ shipped prose, not recalled personal content, so it is retained. Any such
 personal data must be redacted on recapture. The three `FIXTURE-*` markers remain
 verbatim. The capture extension itself deliberately writes **raw** data: never
 commit its output without this privacy review.
+
+## Acceptance 2026-10-30 (omp 18.14.0, `claude-bridge/claude-opus-5-5`, fork main at a124538)
+
+Run live through herdr against fresh omp processes; each check verified from transcripts or the bridge debug log, not only the model's answer.
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `~/.claude/CLAUDE.md` does not reach bridged turns | PASS — no pi-workers instruction in context |
+| 2 | omp AGENTS.md, APPEND_SYSTEM and skills arrive | PASS — quota-routing rule quoted; `skill://` read works |
+| 3 | No Claude Code hook/plugin output | PASS after A6 (`provider.loadClaudeSettings`, default false); CC transcripts show no hook events |
+| 4 | Context survives `/compact` and `/tree` summaries | PASS after B5 — snap and soft compaction plus branch summary route to the isolated path |
+| 5 | `/btw` promotion keeps context | PASS |
+| 6 | Esc mid-turn and steering between tool calls | PASS — abort logged; steer stopped the tool sequence (minor: the reply appeared twice) |
+| 7 | Task subagent on `claude-bridge/*`, also after `/new` | PASS (subagent model set via config; omp 18.14's task tool takes no per-call model) |
+| 8 | `/usage` matches the subscription | PASS — matches the Claude Code statusline cache (requires `provider.isolateAnthropicEnv` when `ANTHROPIC_API_KEY` is exported) |
