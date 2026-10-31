@@ -6,8 +6,10 @@
 //   usage provider.
 // - omp's session_switch / session_branch stand in for pi's session_start reasons and
 //   session_tree (lifecycle.ts).
-// - omp sends no `cacheRetention: "none"` on compaction and branch-summary calls; the
-//   summary hooks' abort signals mark them instead (src/host-summary.ts).
+// - omp sends no `cacheRetention: "none"` on compaction and branch-summary calls, and wraps
+//   the hooks' abort signals; the registered streamSimple marks calls that carry no
+//   convertToLlm (omp's one-shot calls) instead (oneshot.ts). The signal marking of
+//   src/host-summary.ts stays wired as the generic seam.
 // - omp's before_agent_start has no systemPromptOptions; a resolver recovers the
 //   portable parts from omp's system prompt (src/host-prompt.ts, prompt-parts.ts).
 
@@ -18,6 +20,7 @@ import { PROVIDER_ID } from "../../convert.js";
 import { registerHostPromptParts } from "../../host-prompt.js";
 import { markHostSummarySignal } from "../../host-summary.js";
 import { routeOmpLifecycle, type Handler } from "./lifecycle.js";
+import { isOmpOneShotCall } from "./oneshot.js";
 import { extractOmpPromptParts } from "./prompt-parts.js";
 import { createUsageProvider } from "./usage.js";
 
@@ -30,6 +33,21 @@ export interface OmpEntryDeps {
 const HOST_MISMATCH_NOTICE =
 	"claude-bridge: this host does not look like Oh My Pi (its context has no getAsyncJobSnapshot). "
 	+ "The omp entry point may misbehave here; under pi, load src/index.ts instead.";
+
+/**
+ * The claude-bridge registration as omp sees it: with a usage provider, and with
+ * streamSimple marking omp's one-shot calls `cacheRetention: "none"` so the shared
+ * extension routes them to its isolated summary path (omp wraps the hook signal and sends
+ * no marker of its own; see oneshot.ts). Agent-loop calls pass through untouched.
+ */
+function bridgeProviderConfig(config: object, deps: OmpEntryDeps): object {
+	const original = (config as { streamSimple?: (model: unknown, context: unknown, options?: any) => unknown }).streamSimple;
+	const streamSimple = typeof original === "function"
+		? (model: unknown, context: unknown, options?: any) =>
+			original(model, context, isOmpOneShotCall(options) ? { ...options, cacheRetention: "none" } : options)
+		: original;
+	return { ...config, ...(streamSimple ? { streamSimple } : {}), usage: deps.usage() };
+}
 
 /** An omp extension factory that activates `activate` with the wrapped API. */
 export function createOmpEntry(activate: (pi: any) => void, deps: OmpEntryDeps): (pi: any) => void {
@@ -45,7 +63,7 @@ export function createOmpEntry(activate: (pi: any) => void, deps: OmpEntryDeps):
 			pi.on(event, handler);
 		};
 		const registerProvider = (name: string, config: object) => {
-			pi.registerProvider(name, name === PROVIDER_ID ? { ...config, usage: deps.usage() } : config);
+			pi.registerProvider(name, name === PROVIDER_ID ? bridgeProviderConfig(config, deps) : config);
 		};
 		const overrides: Record<PropertyKey, unknown> = { on, registerProvider };
 
